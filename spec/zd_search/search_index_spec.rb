@@ -11,6 +11,10 @@ RSpec.describe ZdSearch::SearchIndex do
 
   let(:documents) { [] }
 
+  def pluck(documents, field)
+    documents.map { |doc| doc.body[field] }
+  end
+
   describe '#size' do
     let(:documents) do
       [
@@ -23,6 +27,32 @@ RSpec.describe ZdSearch::SearchIndex do
 
     it 'returns the number of documents inside the index' do
       expect(search.size).to eq 4
+    end
+  end
+
+  describe '#find_any' do
+    context 'not found' do
+      let(:documents) { [ZdSearch::Document.new(:thing, name: 'Clark')] }
+
+      it 'returns empty array' do
+        expect(search.find_any('Kent')).to be_empty
+      end
+    end
+
+    context 'found' do
+      let(:documents) do
+        [
+          ZdSearch::Document.new(:thing, id: 1, name: 'Bruce'),
+          ZdSearch::Document.new(:thing_1, id: 2, name: 'Wayne'),
+          ZdSearch::Document.new(:thing_2, id: 3,name: 'Selina', last_name: 'Wayne'),
+          ZdSearch::Document.new(:thing_3, id: 4, name: 'Kyle'),
+        ]
+      end
+
+      it 'returns all matches' do
+        results = search.find_any('Wayne')
+        expect(pluck(results, :id)).to contain_exactly(3, 2)
+      end
     end
   end
 
@@ -45,9 +75,8 @@ RSpec.describe ZdSearch::SearchIndex do
       let(:documents) { [ZdSearch::Document.new(:thing, name: 'Clark')] }
 
       it 'returns the original document' do
-        documents = search.find('name', 'Clark')
-        expect(documents.size).to eq 1
-        expect(documents.first.body[:name]).to eq 'Clark'
+        results = search.find('name', 'Clark')
+        expect(pluck(results, :name)).to contain_exactly('Clark')
       end
 
       context 'across indices' do
@@ -60,57 +89,133 @@ RSpec.describe ZdSearch::SearchIndex do
         end
 
         it 'returns all matching documents' do
-          documents = search.find('name', 'Clark')
-          expect(documents.size).to eq 2
+          results = search.find(:name, 'Clark')
+          expect(results.size).to eq 2
         end
       end
 
-      context 'different value types' do
-        context 'boolean' do
-          let(:documents) do
-            [
-              ZdSearch::Document.new(:thing, name: 'Clark', status: true),
-            ]
-          end
-
-          it 'returns matching document' do
-            documents = search.find('status', true)
-            expect(documents.size).to eq 1
-            expect(documents.first.body[:name]).to eq 'Clark'
-          end
+      context 'restricted to field' do
+        let(:documents) do
+          [
+            ZdSearch::Document.new(:thing_0, name: 'Clark', id: 2),
+            ZdSearch::Document.new(:thing_1, name: 'Kent', _uid: 2),
+          ]
         end
 
-        context 'array' do
-          let(:documents) do
-            [
-              ZdSearch::Document.new(:thing, name: 'Clark', tags: %w[DC superhero]),
-              ZdSearch::Document.new(:thing, name: 'Leonard', tags: %w[DC villain]),
-              ZdSearch::Document.new(:thing, name: 'Archie', tags: %w[Archie]),
-            ]
-          end
+        it 'returns only documents with matching field' do
+          results = search.find('_uid', 2)
+          expect(pluck(results, :name)).to contain_exactly 'Kent'
+        end
+      end
+    end
+  end
 
-          it 'returns matching documents' do
-            documents = search.find('tags', 'DC')
-            expect(documents.size).to eq 2
-            names = documents.map { |doc| doc.body[:name] }
-            expect(names).to contain_exactly('Clark', 'Leonard')
-          end
+  context 'different value types' do
+    context 'boolean' do
+      let(:documents) do
+        [
+          ZdSearch::Document.new(:thing, name: 'Clark', status: true),
+        ]
+      end
+
+      it 'returns matching document' do
+        results = search.find('status', true)
+        expect(pluck(results, :name)).to contain_exactly 'Clark'
+      end
+    end
+
+    context 'int' do
+      let(:documents) do
+        [
+          ZdSearch::Document.new(:thing, name: 'Clark', _id: 123),
+          ZdSearch::Document.new(:thing, name: 'Kent', _id: 123456),
+        ]
+      end
+
+      it 'returns matching document' do
+        results = search.find_any(123)
+        expect(pluck(results, :name)).to contain_exactly 'Clark'
+      end
+    end
+
+    context 'hash' do
+      let(:documents) do
+        [
+          ZdSearch::Document.new(:thing, id: 1, obj: 3),
+          ZdSearch::Document.new(:thing, id: 2, obj: { a: { b: 3 }}),
+        ]
+      end
+
+      it 'returns matching document' do
+        results = search.find('obj.a.b', 3)
+        expect(pluck(results, :id)).to contain_exactly 2
+      end
+    end
+
+    context 'array' do
+      let(:documents) do
+        [
+          ZdSearch::Document.new(:thing, name: 'Clark', tags: %w[DC superhero]),
+          ZdSearch::Document.new(:thing, name: 'Leonard', tags: %w[DC villain]),
+          ZdSearch::Document.new(:thing, name: 'Archie', tags: %w[Archie]),
+        ]
+      end
+
+      it 'returns matching documents' do
+        results = search.find('tags', 'DC')
+        expect(pluck(results, :name)).to contain_exactly('Clark', 'Leonard')
+      end
+
+      context 'nested hash' do
+        let(:documents) do
+          [
+            ZdSearch::Document.new(:thing, name: 'Clark', obj: [{ nest: 'nested', b: 2}]),
+            ZdSearch::Document.new(:thing, name: 'Leonard', obj: %w[DC villain]),
+          ]
         end
 
-        context 'empty' do
-          let(:documents) do
-            [
-              ZdSearch::Document.new(:thing, name: 'Clark', last_name: 'Kent'),
-              ZdSearch::Document.new(:thing, name: 'Bruce', last_name: ''),
-            ]
-          end
-
-          it 'returns matching document' do
-            documents = search.find('last_name', '')
-            expect(documents.size).to eq 1
-            expect(documents.first.body[:name]).to eq 'Bruce'
-          end
+        it 'returns matching document' do
+          results = search.find('obj.nest', 'nested')
+          expect(pluck(results, :name)).to contain_exactly 'Clark'
         end
+      end
+    end
+
+    context 'empty' do
+      let(:documents) do
+        [
+          ZdSearch::Document.new(:thing, name: 'Clark', last_name: 'Kent'),
+          ZdSearch::Document.new(:thing, name: 'Bruce', last_name: ''),
+        ]
+      end
+
+      it 'returns matching document' do
+        results = search.find('last_name', '')
+        expect(pluck(results, :name)).to contain_exactly 'Bruce'
+      end
+
+      it 'matches nil too' do
+        results = search.find('last_name', nil)
+        expect(pluck(results, :name)).to contain_exactly 'Bruce'
+      end
+    end
+
+    context 'nil' do
+      let(:documents) do
+        [
+          ZdSearch::Document.new(:thing, name: 'Clark', last_name: 'Kent'),
+          ZdSearch::Document.new(:thing, name: 'Bruce', last_name: nil),
+        ]
+      end
+
+      it 'returns matching document' do
+        results = search.find(:last_name, nil)
+        expect(pluck(results, :name)).to contain_exactly 'Bruce'
+      end
+
+      it 'matches empty string too' do
+        results = search.find('last_name', '')
+        expect(pluck(results, :name)).to contain_exactly 'Bruce'
       end
     end
   end
@@ -127,8 +232,7 @@ RSpec.describe ZdSearch::SearchIndex do
 
     it 'searches on multiple attributes' do
       results = search.search(active: true, done: 3)
-      expect(results.size).to eq 1
-      expect(documents.first.body[:name]).to eq 'Diana'
+      expect(pluck(results, :name)).to contain_exactly 'Diana'
     end
   end
 end

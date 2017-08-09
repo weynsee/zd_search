@@ -24,16 +24,18 @@ module ZdSearch
           load_file file
         end
       end
+      warn "no json files found in #{dir}" if size == 0
     end
 
     def load_file(file)
       type = File.basename file, '.json'
       File.open(file) do |f|
         JSON.load(f).each do |doc|
-          document = Document.new(type, doc)
-          @search_index << document
+          @search_index << Document.new(type, doc)
         end
       end
+    rescue JSON::ParserError
+      warn "#{file} is not a JSON file, skipping it"
     end
   end
 end
