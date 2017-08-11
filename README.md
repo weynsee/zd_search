@@ -5,6 +5,8 @@ results.
 
 ## Installation
 
+All commands given below have to be run inside the repository's directory.
+
 ### Docker
 
 A dockerfile is provided for running the app with all the dependencies included. To build the image:
@@ -35,7 +37,7 @@ The `zd_search` command should be available after.
 
 ## Usage
 
-`zd_search` requires a data directory to search against. This directory must contain valid JSON files with `.json` extensions,
+`zd_search` requires a data directory to search against. This directory must contain valid JSON files with a `.json` extension,
 otherwise they will be ignored. If no directory is specified, it will check for a `data` directory relative to its current path.
 To specify a data directory, do:
 
